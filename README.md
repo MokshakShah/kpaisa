@@ -4,7 +4,7 @@ Skyward Booking is a polished airline seat-selection experience built with React
 
 ## Live demo
 
-**Production:** [kpaisa.vercel.app](https://kpaisa.vercel.app)
+**Production:** [kpaisa.vercel.app](https://kpaisa-internship.vercel.app/)
 
 ## Features
 
