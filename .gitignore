@@ -1,0 +1,114 @@
+.vercel
+# ==========================================
+# 1. ENVIRONMENT & SECRETS
+# ==========================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# ==========================================
+# 2. DEPENDENCIES & PACKAGES
+# ==========================================
+# Node / JavaScript
+node_modules/
+jspm_packages/
+.npm
+.yarn/
+.pnp.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+pip-wheel-metadata/
+.pytest_cache/
+
+# Java / JVM / Mobile
+.gradle/
+vendor/
+
+# ==========================================
+# 3. BUILD OUTPUTS & COMPILED FILES
+# ==========================================
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+target/
+bin/
+obj/
+*.exe
+*.dll
+*.so
+*.dylib
+*.class
+*.jar
+*.war
+*.apk
+*.aab
+*.ipa
+
+# ==========================================
+# 4. LOGS, CACHES & LOCAL DATABASES
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.cache/
+.eslintcache
+.stylelintcache
+*.sqlite
+*.sqlite3
+*.db
+
+# ==========================================
+# 5. OPERATING SYSTEM FILES
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# ==========================================
+# 6. EDITORS & IDES
+# ==========================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*.swn
+xcuserdata/
