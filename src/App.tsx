@@ -1,26 +1,10 @@
-import { useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from './components/Icon'
 import { Header } from './components/Header'
+import type { BookingSnapshot, Meal, Passenger, SeatLayout } from './types'
+import { loadBooking, saveBooking } from './utils/bookingStorage'
 import { formatPrice, getSeatPrice } from './utils/seatPricing'
 import './styles.css'
-
-type SeatStatus = 'available' | 'selected' | 'occupied' | 'extra'
-
-type Passenger = {
-  id: number
-  name: string
-  seat: string | null
-}
-
-type Meal = {
-  id: string
-  name: string
-  description: string
-  category: 'Vegetarian' | 'Non-vegetarian'
-  price: number
-}
-
-type SeatLayout = '3-2' | '2-3-2'
 
 const seatGroups: Record<SeatLayout, string[][]> = {
   '3-2': [['A', 'B', 'C'], ['D', 'E']],
@@ -34,8 +18,9 @@ const meals: Meal[] = [
   { id: 'fruit', name: 'Fresh fruit bowl', description: 'Seasonal fruit selection', category: 'Vegetarian', price: 150 },
 ]
 
-function SeatMap({ layout, selectedSeat, assignedSeats, hasActivePassenger, onSelect }: { layout: SeatLayout; selectedSeat: string | null; assignedSeats: string[]; hasActivePassenger: boolean; onSelect: (seat: string | null) => void }) {
+const SeatMap = memo(function SeatMap({ layout, selectedSeat, assignedSeats, hasActivePassenger, onSelect }: { layout: SeatLayout; selectedSeat: string | null; assignedSeats: ReadonlySet<string>; hasActivePassenger: boolean; onSelect: (seat: string | null) => void }) {
   const groups = seatGroups[layout]
+  const [hoveredSeat, setHoveredSeat] = useState<string | null>(null)
   return (
     <div className={`aircraft aircraft-${layout}`} aria-label={`${layout} aircraft seat map`}>
       <div className="aircraft-nose"><span>Front of aircraft</span></div>
@@ -51,12 +36,13 @@ function SeatMap({ layout, selectedSeat, assignedSeats, hasActivePassenger, onSe
               {groups.map((group, groupIndex) => <span className="seat-group" key={groupIndex}>
                 {group.map((seatLabel) => {
                   const label = `${rowIndex + 1}${seatLabel}`
-                  const isAssignedToAnotherPassenger = assignedSeats.includes(label) && selectedSeat !== label
+                  const isAssignedToAnotherPassenger = assignedSeats.has(label) && selectedSeat !== label
                   const unavailable = occupiedSeats.has(label)
                   const currentStatus = selectedSeat === label ? 'selected' : isAssignedToAnotherPassenger || unavailable ? 'occupied' : extraLegroomSeats.has(label) ? 'extra' : 'available'
                   const seatPrice = getSeatPrice(label)
-                  return <span className={`seat seat-${currentStatus}`} key={label}>
-                    <button aria-label={`${label}, ${seatPrice.category} seat, ${formatPrice(seatPrice.amount)}`} disabled={!hasActivePassenger || unavailable || isAssignedToAnotherPassenger} onClick={() => onSelect(selectedSeat === label ? null : label)} title={hasActivePassenger ? `${seatPrice.category} · ${formatPrice(seatPrice.amount)}` : 'Select a passenger first'}>{seatLabel}</button>
+                  return <span className={`seat seat-${currentStatus}`} key={label} onMouseEnter={() => setHoveredSeat(label)} onMouseLeave={() => setHoveredSeat(null)}>
+                    <button aria-label={`${label}, ${seatPrice.category} seat, ${formatPrice(seatPrice.amount)}`} disabled={!hasActivePassenger || unavailable || isAssignedToAnotherPassenger} onClick={() => onSelect(selectedSeat === label ? null : label)}>{seatLabel}</button>
+                    {hoveredSeat === label && <span className="seat-tooltip"><strong>Seat {label}</strong><span>{seatPrice.category}</span><b>{formatPrice(seatPrice.amount)}</b></span>}
                   </span>
                 })}
               </span>)}
@@ -68,25 +54,36 @@ function SeatMap({ layout, selectedSeat, assignedSeats, hasActivePassenger, onSe
       <div className="aircraft-tail" />
     </div>
   )
-}
+})
 
 function App() {
   const [layout, setLayout] = useState<SeatLayout>('3-2')
-  const [passengerCount, setPassengerCount] = useState(1)
   const [activePassengerId, setActivePassengerId] = useState<number | null>(null)
-  const [passengers, setPassengers] = useState<Passenger[]>([
-    { id: 1, name: 'Alex Morgan', seat: null },
-  ])
-  const [passengerMeals, setPassengerMeals] = useState<Record<number, string | null>>({ 1: null })
+  const [initialBooking] = useState(loadBooking)
+  const [passengers, setPassengers] = useState<Passenger[]>(initialBooking.passengers)
+  const [passengerMeals, setPassengerMeals] = useState<Record<number, string | null>>(initialBooking.passengerMeals)
+  const [history, setHistory] = useState<BookingSnapshot[]>([])
+  const [confirmed, setConfirmed] = useState(false)
+  const [savedNotice, setSavedNotice] = useState(false)
+  const passengerCount = passengers.length
   const activePassenger = activePassengerId === null ? null : passengers.find((passenger) => passenger.id === activePassengerId) ?? null
-  const assignedSeats = passengers.map((passenger) => passenger.seat).filter((seat): seat is string => seat !== null)
+  const assignedSeats = useMemo(() => new Set(passengers.flatMap((passenger) => passenger.seat ? [passenger.seat] : [])), [passengers])
+
+  useEffect(() => {
+    saveBooking({ passengers, passengerMeals })
+    setSavedNotice(true)
+    const timer = window.setTimeout(() => setSavedNotice(false), 1800)
+    return () => window.clearTimeout(timer)
+  }, [passengers, passengerMeals])
+
+  const recordHistory = useCallback(() => setHistory((current) => [...current.slice(-9), { passengers, passengerMeals }]), [passengers, passengerMeals])
 
   const updatePassengerCount = (nextCount: number) => {
+    recordHistory()
     const nextPassengers = Array.from({ length: nextCount }, (_, index) => {
       const existing = passengers[index]
       return existing ?? { id: index + 1, name: `Passenger ${index + 1}`, seat: null }
     })
-    setPassengerCount(nextCount)
     setPassengers(nextPassengers)
     setPassengerMeals((currentMeals) => Object.fromEntries(
       Array.from({ length: nextCount }, (_, index) => [index + 1, currentMeals[index + 1] ?? null]),
@@ -94,21 +91,75 @@ function App() {
     if (activePassengerId !== null && activePassengerId > nextCount) setActivePassengerId(null)
   }
 
-  const assignSeat = (seat: string | null) => {
+  const assignSeat = useCallback((seat: string | null) => {
     if (activePassenger === null) return
+    recordHistory()
     setPassengers((currentPassengers) => currentPassengers.map((passenger) => (
       passenger.id === activePassenger.id ? { ...passenger, seat } : passenger
     )))
+  }, [activePassenger, recordHistory])
+
+  const findAvailableSeats = (count: number, preferredRow?: number) => {
+    const seats: string[] = []
+    const rows = Array.from({ length: 6 }, (_, index) => index + 1).sort((a, b) => preferredRow ? Math.abs(a - preferredRow) - Math.abs(b - preferredRow) : a - b)
+    for (const row of rows) {
+      for (const group of seatGroups[layout]) {
+        for (const label of group) {
+          const seat = `${row}${label}`
+          if (!occupiedSeats.has(seat) && !assignedSeats.has(seat) && !seats.includes(seat)) seats.push(seat)
+          if (seats.length === count) return seats
+        }
+      }
+    }
+    return seats
   }
 
-  const uniqueAssignedSeats = new Set(assignedSeats)
-  const seatTotal = Array.from(uniqueAssignedSeats).reduce((total, seat) => total + getSeatPrice(seat).amount, 0)
-  const mealTotal = Object.values(passengerMeals).reduce((total, mealId) => total + (meals.find((meal) => meal.id === mealId)?.price ?? 0), 0)
+  const recommendSeat = () => {
+    if (activePassenger === null) return
+    const recommended = findAvailableSeats(1, activePassenger.seat ? Number.parseInt(activePassenger.seat, 10) : undefined)[0]
+    if (recommended) assignSeat(recommended)
+  }
+
+  const keepPassengersTogether = () => {
+    const unoccupiedPassengers = passengers.filter((passenger) => passenger.seat === null)
+    if (unoccupiedPassengers.length === 0) return
+    const available = Array.from({ length: 6 }, (_, index) => index + 1).flatMap((row) => {
+      const rowSeats = seatGroups[layout].flatMap((group) => group.map((label) => `${row}${label}`)).filter((seat) => !occupiedSeats.has(seat) && !assignedSeats.has(seat))
+      return rowSeats.length >= unoccupiedPassengers.length ? rowSeats.slice(0, unoccupiedPassengers.length) : []
+    }).slice(0, unoccupiedPassengers.length)
+    if (available.length !== unoccupiedPassengers.length) return
+    recordHistory()
+    const assignments = new Map(unoccupiedPassengers.map((passenger, index) => [passenger.id, available[index]]))
+    setPassengers((current) => current.map((passenger) => assignments.has(passenger.id) ? { ...passenger, seat: assignments.get(passenger.id) ?? null } : passenger))
+  }
+
+  const undoChange = () => {
+    const previous = history.at(-1)
+    if (!previous) return
+    setPassengers(previous.passengers)
+    setPassengerMeals(previous.passengerMeals)
+    setHistory((current) => current.slice(0, -1))
+  }
+
+  const seatTotal = useMemo(() => Array.from(assignedSeats).reduce((total, seat) => total + getSeatPrice(seat).amount, 0), [assignedSeats])
+  const mealTotal = useMemo(() => Object.values(passengerMeals).reduce((total, mealId) => total + (meals.find((meal) => meal.id === mealId)?.price ?? 0), 0), [passengerMeals])
   const totalPrice = 18490 * passengerCount + seatTotal + mealTotal
   const allPassengersSeated = passengers.every((passenger) => passenger.seat !== null)
   const selectMeal = (mealId: string | null) => {
     if (activePassenger === null) return
+    recordHistory()
     setPassengerMeals((currentMeals) => ({ ...currentMeals, [activePassenger.id]: mealId }))
+  }
+
+  if (confirmed) {
+    return <div className="app-shell booking-app"><Header /><main className="confirmation-page">
+      <div className="confirmation-mark">✓</div>
+      <p className="eyebrow"><span /> Booking confirmed</p>
+      <h1>Your journey is <em>ready.</em></h1>
+      <p className="confirmation-copy">Your seats and optional meals have been saved. We look forward to welcoming you on board.</p>
+      <div className="confirmation-card"><div><span>Booking reference</span><strong>SKY-4821</strong></div><div><span>Route</span><strong>DEL → DXB</strong></div><div><span>Departure</span><strong>12 Sep 2025 · 08:40</strong></div><div><span>Total paid</span><strong>{formatPrice(totalPrice)}</strong></div></div>
+      <button className="continue-button confirmation-button" onClick={() => setConfirmed(false)}>Review booking</button>
+    </main></div>
   }
 
   return (
@@ -155,6 +206,7 @@ function App() {
                   </button>
                 ))}
               </div>
+              <div className="passenger-actions"><button className="outline-button" disabled={activePassenger === null} onClick={recommendSeat}>Recommend a seat</button><button className="outline-button" disabled={passengers.filter((passenger) => passenger.seat === null).length < 2} onClick={keepPassengersTogether}>Keep passengers together</button><button className="undo-button" disabled={history.length === 0} onClick={undoChange}>Undo last change</button></div>
             </section>
 
             <section className="content-section seat-section">
@@ -173,6 +225,7 @@ function App() {
                 <span><i className="legend-seat legend-occupied" />Unavailable</span>
               </div>
               <SeatMap layout={layout} selectedSeat={activePassenger?.seat ?? null} assignedSeats={assignedSeats} hasActivePassenger={activePassenger !== null} onSelect={assignSeat} />
+              <p className="recommendation-note">Smart tip: {activePassenger?.seat ? 'Your current seat is saved. You can change it anytime.' : 'Window seats in the front rows are usually the quietest.'}</p>
             </section>
             <section className="content-section meal-section">
               <div className="section-title">
@@ -217,8 +270,9 @@ function App() {
             <div className="fare-lines"><div><span>Flight fare</span><b>{formatPrice(17290 * passengerCount)}</b></div><div><span>Seat selection</span><b>{formatPrice(seatTotal)}</b></div><div><span>Taxes & fees</span><b>{formatPrice(1200 * passengerCount)}</b></div></div>
             <div className="fare-lines meal-charge"><div><span>Meal selection</span><b>{formatPrice(mealTotal)}</b></div></div>
             <div className="total-price"><span>Total price <small>for {passengerCount} {passengerCount === 1 ? 'passenger' : 'passengers'}</small></span><strong>{formatPrice(totalPrice)}</strong></div>
-            <button className="continue-button" disabled={!allPassengersSeated}>Continue to payment <Icon name="arrow" size={17} /></button>
-            <p className={`secure-note ${allPassengersSeated ? '' : 'validation-note'}`}>{allPassengersSeated ? 'Prices include all taxes and fees' : 'Assign a seat to every passenger to continue'}</p>
+            <div className="breakdown-note"><span>Seat charges</span><b>{formatPrice(seatTotal)}</b><span>Meal charges</span><b>{formatPrice(mealTotal)}</b></div>
+            <button className="continue-button" disabled={!allPassengersSeated} onClick={() => setConfirmed(true)}>Continue to payment <Icon name="arrow" size={17} /></button>
+            <p className={`secure-note ${allPassengersSeated ? '' : 'validation-note'}`}>{savedNotice ? 'Selection saved on this device' : allPassengersSeated ? 'Prices include all taxes and fees' : 'Assign a seat to every passenger to continue'}</p>
           </aside>
         </div>
       </main>
